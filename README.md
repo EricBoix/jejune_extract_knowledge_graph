@@ -72,12 +72,7 @@ python extract_kg_graph.py \
     tail -f extract.log
     ```
 
-- when a pre-existing neo4j database content exists (look a the content of the `./data` directory), and depending on your filesystem rights setup) you might get an error message on
-
-    ```bash
-    docker run --interactive --tty --rm --volume=`pwd`/data:/data neo4j /usr/bin/rm -fr /data/*
-    rmdir ./data
-    ```
+- when a pre-existing neo4j database content exists (look a the content of the `./data` directory or run `jejune neo4j stats`, and depending on your filesystem rights setup) you might get an error message. Then try running `jejune neo4j delete ./data`
 
 ## Running with Docker
 
@@ -116,8 +111,7 @@ docker run --rm \
 
 Three standalone splitters are provided. Each reads document metadata from
 `catalog.yaml` (located at the root of a `jejune_doc_*` repository) and writes
-a JSON file of [LangChain Documents](https://reference.langchain.com/python/langchain-core/documents)
-that can be inspected before feeding into the extractor.
+a JSON file of [LangChain Documents](https://reference.langchain.com/python/langchain-core/documents) that can be inspected before feeding them into the extractor.
 
 All splitters share these output flags:
 
