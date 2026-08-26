@@ -8,6 +8,7 @@ langchain_text_splitters
 neo4j
 networkx
 python-dotenv
-unstructured
-markdown
+markdown-it-py
+nltk
+pyyaml
 traceloop-sdk

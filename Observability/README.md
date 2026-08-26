@@ -12,7 +12,7 @@
 
 ## Introduction
 
-This directory sets up end-to-end LLM observability for `extracting_graph_semantic_chuncker.py`
+This directory sets up end-to-end LLM observability for `extract_kg_graph.py`
 using two fully free and open-source components:
 
 - **Instrumentation: [Traceloop OpenLLMetry](https://github.com/traceloop/openllmetry)** a Python SDK that auto-instruments LangChain (and Ollama) calls and emits OpenTelemetry traces.
@@ -62,8 +62,8 @@ docker compose down
 Set the TRACELOOP_BASE_URL OTLP endpoint in `.env`) and run the extraction as usual:
 
 ```bash
-python extracting_graph_semantic_chuncker.py \
-  --load_markdown_document path/to/your/document.md
+python extract_kg_graph.py \
+  --load_json_document path/to/chunks.json \
   --use_llm_telemetry_server true
 ```
 

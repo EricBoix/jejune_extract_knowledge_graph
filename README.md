@@ -5,7 +5,7 @@
 - [Introduction](#introduction)
 - [Running things: the simple extraction use case](#running-things-the-simple-extraction-use-case)
 - [Running with Docker](#running-with-docker)
-- [Further advanced document "chunckings"](#further-advanced-document-chunckings)
+- [Splitting strategies](#splitting-strategies)
 - [Visually explore the resulting knowledge graph (with neo4j web UI)](#visually-explore-the-resulting-knowledge-graph-with-neo4j-web-ui)
 - [Use the knowledge graph programmatically](#use-the-knowledge-graph-programmatically)
 - [Dump/Restore the database content for later usage](#dumprestore-the-database-content-for-later-usage)
@@ -22,22 +22,20 @@ The original associated code, from which this work is partly derived, is availab
 
 ### Configure and start a Neo4j database (to collect the extracted graph)
 
-Refer to [jj_workflow_shell configuration stage](https://github.com/EricBoix/jj_workflow_shell.git/Readme.md) in order to configure the shell utilities/methods.
-
-TLDR;
+Install and configure [`jejune_cli`](https://github.com/EricBoix/jejune_cli), then verify the setup:
 
 ```bash
-cd `git rev-parse --show-toplevel`         # Implicit from now on
-git clone https://github.com/EricBoix/jj_workflow_shell.git
-cp env-reference .env
-# Edit and configure resulting .env file
-export RESULTS_DIR=`pwd`/result_data       # Syntactic sugar
-\rm -fr $RESULTS_DIR/database
+uv tool install git+https://github.com/EricBoix/jejune_cli
+jejune configuration doc-steward init
+# Proceed with the configuration of the files located in .jejune/
+jejune doctor
 ```
 
+Define a convenience variable for the results directory, then start Neo4j:
+
 ```bash
-source jj_workflow_shell/Neo4jDatabase.sh    # Implicit from now on
-launch_neo4j_db $RESULTS_DIR $NEO4J_PORT $NEO4J_USERNAME/$NEO4J_PASSWORD
+export RESULTS_DIR=`pwd`/result_data
+jejune neo4j start $RESULTS_DIR
 ```
 
 ### Realize the graph extraction
@@ -51,11 +49,18 @@ pip install -r requirements.txt
 
 ```bash
 # Retrieve some input data e.g.
-git clone https://github.com/EricBoix/jejune_doc_Four_Noble_Truths.git jejune_doc_Four_Noble_Truths.git
-# Extract the graph and store it in database
-python extracting_graph.py \
---input_directory jejune_doc_Four_Noble_Truths.git/original_data/ \
---load_markdown_document 250_BCE_-_Dhammacakkappavattana_Sutta_Four_Noble_Truths_Wikipedia_translation.md
+git clone https://github.com/EricBoix/jejune_doc_Four_Noble_Truths.git
+
+# Step 1: split the document (choose a splitter — see "Splitting strategies" below).
+# Output is written beside the markdown file with an auto-generated name, e.g.
+# jejune_doc_Four_Noble_Truths/original_data/<stem>_-_Headers_as_LangChain_document.json
+python split_by_headers.py \
+  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml
+
+# Step 2: extract the knowledge graph and store it in Neo4j
+python extract_kg_graph.py \
+  --load_json_document \
+  jejune_doc_Four_Noble_Truths/original_data/<stem>_-_Headers_as_LangChain_document.json
 ```
 
 ### Notes
@@ -63,7 +68,7 @@ python extracting_graph.py \
 - when the extraction is too lengthy (or running on a remote ssh server) consider using
 
     ```bash
-    python extracting_graph.py [...] > extract.log &
+    python extract_kg_graph.py --load_json_document by_headers.json > extract.log &
     tail -f extract.log
     ```
 
@@ -85,28 +90,99 @@ docker build -t jejuneness:extract_knowledge_graph https://github.com/EricBoix/j
 Shallow testing of the image
 
 ```bash
-docker run jejuneness:extract_knowledge_graph extracting_graph.py --help
+docker run jejuneness:extract_knowledge_graph split_by_headers.py --help
+docker run jejuneness:extract_knowledge_graph extract_kg_graph.py --help
 ```
 
 Run the extraction (adjust paths and `.env` as needed):
 
 ```bash
+# Step 1: split (doc_dir is mounted as /data; output written beside the markdown file)
 docker run --rm \
-  -v /path/to/data:/data \
+  -v /path/to/jejune_doc_<name>:/data \
+  jejuneness:extract_knowledge_graph \
+  split_by_headers.py --catalog /data/catalog.yaml --output_dir /data/original_data
+
+# Step 2: extract (adjust the auto-generated filename to match the markdown stem)
+docker run --rm \
+  -v /path/to/jejune_doc_<name>:/data \
   --env-file .env \
   jejuneness:extract_knowledge_graph \
-  extracting_graph.py --input_directory /data --load_markdown_document file.md
+  extract_kg_graph.py \
+  --load_json_document /data/original_data/<stem>_-_Headers_as_LangChain_document.json
 ```
 
-## Further advanced document "chunckings"
+## Splitting strategies
 
-If you wish to break down the original document in chunks that follow the sentence structure (as opposed to evenly sized chunks with some overlap) use the following script (that depends on the output of [Collecting Gold Dust conversion](https://github.com/EricBoix/jj_doc_Collecting_Gold_Dust/blob/main/Readme.md)) :
+Three standalone splitters are provided. Each reads document metadata from
+`catalog.yaml` (located at the root of a `jejune_doc_*` repository) and writes
+a JSON file of [LangChain Documents](https://reference.langchain.com/python/langchain-core/documents)
+that can be inspected before feeding into the extractor.
+
+All splitters share these output flags:
+
+| Flag | Meaning |
+|------|---------|
+| _(none)_ | auto-generate `<markdown_stem>_-_<Modality>_as_LangChain_document.json` beside the markdown file |
+| `--output_dir DIR` | place the auto-generated (or named) file in `DIR` instead |
+| `--output FILE` | use `FILE` as the filename; relative to `--output_dir` if given |
+| `--output -` | write to stdout |
+
+`--catalog` is repeatable to blend multiple documents; `--output` is then required.
+
+### Split by header sections
+
+One chunk per markdown section (all paragraphs under a heading merged).
+Header hierarchy (`h1`, `h2`, `h3`) is captured in metadata.
 
 ```bash
-python extracting_graph_semantic_chuncker.py \
---input_directory ../../../Data/ISBN_978-0-9835844-5-2_-_Collecting_Gold_Dust/ \
---load_markdown_document result_data/2019_-_Sayadaw-U-Tejaniya-Collecting-Gold-Dust-Web-Book-1_-_local_converter.md \
---load_json_document result_data/2019_-_Sayadaw-U-Tejaniya-Collecting-Gold-Dust-Web-Book-1_-_Sentences_as_LangChain_Document.json
+# Auto-named output beside the markdown file
+python split_by_headers.py \
+  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml
+
+# Or redirect to a specific directory
+python split_by_headers.py \
+  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
+  --output_dir result_data
+```
+
+### Split by paragraphs
+
+One chunk per paragraph. Metadata includes the enclosing header hierarchy and
+a `paragraph_number` (reset at each heading boundary).
+
+```bash
+python split_by_paragraphs.py \
+  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
+  --output_dir result_data
+```
+
+### Split by sentences
+
+One chunk per sentence using `nltk.sent_tokenize`. Metadata includes header
+hierarchy, `paragraph_number`, and `sentence_number` within the paragraph.
+
+```bash
+python split_by_sentences.py \
+  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
+  --output_dir result_data
+```
+
+### Blending multiple documents or splitters
+
+Pass `--catalog` multiple times (requires `--output`), or supply multiple
+`--load_json_document` arguments to `extract_kg_graph.py` to blend sources:
+
+```bash
+python split_by_sentences.py \
+  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
+  --catalog jejune_doc_Rob_Burbea/catalog.yaml \
+  --output_dir result_data \
+  --output blended_-_Sentences_as_LangChain_document.json
+
+python extract_kg_graph.py \
+  --load_json_document result_data/blended_-_Sentences_as_LangChain_document.json \
+  --load_json_document result_data/Rob_Burbea_-_Sentences_as_LangChain_Document.json
 ```
 
 ## Visually explore the resulting knowledge graph (with neo4j web UI)
@@ -171,20 +247,20 @@ python vector_and_graph_hybrid_search.py
 
 ## Dump/Restore the database content for later usage
 
-Again, refer to [jj_workflow_shell configuration stage](https://github.com/EricBoix/jj_workflow_shell.git/Readme.md) in order to configure and use the `dump_database` and `restore_database` shell utilities/methods.
+Use `jejune neo4j dump` and `jejune neo4j restore` — refer to [`jejune_cli`](https://github.com/EricBoix/jejune_cli) for details.
 
 ## LLM (calls) observability
 
 Refer to [`Observability/README.md`](Observability/README.md) for installation, backend launch, and a guided analysis walkthrough of LLM observability.
 
-Here are a few numerical results. The markdown and sentences columns indicate the number of [LangChain documents](https://reference.langchain.com/python/langchain-core/documents) that where respectively sent to the llm for interpretation (extracting nodes and edges).
+Here are a few numerical results showing the number of [LangChain documents](https://reference.langchain.com/python/langchain-core/documents) sent to the LLM per splitting strategy.
 
-| Book | Markdown (Chuncker) | Sentences | # llm calls |
-| ---- | -------- | --------- | ----------- |
-| [Four Noble Truths](https://github.com/EricBoix/jejune_doc_Four_Noble_Truths) | 1 | 0 | 1 |
-| [Rob Burbea](https://github.com/EricBoix/jj_doc_Rob_Burbea) | 7 | 258 | 265 |
-| [Collecting Gold Dust](https://github.com/EricBoix/jj_doc_Collecting_Gold_Dust) | FIXME | FIXME | FIXME |
-| [Zen flesh, zen bones](https://github.com/EricBoix/jj_doc_Zen_Flesh_Zen_Bones) | 45 (UnstructuredMarkdownLoader) | 2479 | 2524 |
+| Book | By headers | By paragraphs | By sentences | # llm calls |
+| ---- | ---------- | ------------- | ------------ | ----------- |
+| [Four Noble Truths](https://github.com/EricBoix/jejune_doc_Four_Noble_Truths) | 1 | — | — | 1 |
+| [Rob Burbea](https://github.com/EricBoix/jejune_doc_Rob_Burbea) | 7 | — | 258 | 265 |
+| [Collecting Gold Dust](https://github.com/EricBoix/jejune_doc_Collecting_Gold_Dust) | FIXME | FIXME | FIXME | FIXME |
+| [Zen flesh, zen bones](https://github.com/EricBoix/jejune_doc_Zen_Flesh_Zen_Bones) | 45 | — | 2479 | 2524 |
 
 ## References
 
@@ -204,29 +280,22 @@ Here are a few numerical results. The markdown and sentences columns indicate th
 
 - [Read this and improve the script](https://neo4j.com/blog/developer/knowledge-graph-extraction-challenges/)
 
-### Improve graph extraction: explore alternative chunckings
+### Improve graph extraction: explore additional splitting strategies
 
-[RAG chunking strategies article](https://dev.to/sreeni5018/rag-chunking-strategies-4i3a) mentions 6 strategies (checked box indicate strategies used/explored with this code)
+[RAG chunking strategies article](https://dev.to/sreeni5018/rag-chunking-strategies-4i3a) mentions 6 strategies (checked boxes indicate strategies implemented in this repo)
 
-- Fixed-Size chunking (LangChains's `CharacterTextSplitter`)
-- Recursive character chunking (LangChains's `RecursiveCharacterTextSplitter`)
+- Fixed-size chunking (`CharacterTextSplitter`)
+- Recursive character chunking (`RecursiveCharacterTextSplitter`)
 - Semantic chunking
-- Document structure-aware chunking for example
-  - [x] Markdown aware chunking (e.g. LangChain's `MarkdownHeaderTextSplitter`)
-  - [x] Grammar aware chunking: use paragraph and sentence structure.
-- Hierarchical (parent/child) chunking: can be naturally combined with/deduced from document-structure-aware chunking
-- LLM-based (and agentic chunking)
-
-The [`ToolTesting/GraphRAG/extracting_graph.py` code](./Doc/ToolTesting/GraphRAG/extracting_graph.py#32) currently uses [LangChain's `RecursiveCharacterTextSplitter`](https://reference.langchain.com/python/langchain-text-splitters/character/RecursiveCharacterTextSplitter) as "chuncker". But knowledge graph focuses on semantics and using a semantic based chuncker can only improve things (although it comes at a cost) at two levels : retrieval and citation. Since the [`ConvertPdfToMarkdown` package] produces sentence (and/or paragraph, sub-section...) based outputs we have the natural opportunity to use the available semantic chunckers starting with [langchain_experimental's  `SemanticChunker`](https://github.com/langchain-ai/langchain-experimental/blob/main/libs/experimental/langchain_experimental/text_splitter.py#L99).
+- Document structure-aware chunking:
+  - [x] Header-section splitting (`split_by_headers.py` — uses `markdown-it-py`)
+  - [x] Paragraph splitting (`split_by_paragraphs.py`)
+  - [x] Sentence splitting (`split_by_sentences.py` — uses `nltk.sent_tokenize`)
+- Hierarchical (parent/child) chunking — naturally expressible with the existing splitters
+- LLM-based chunking
 
 References:
 
-- [`SemanticChunker` class](https://github.com/langchain-ai/langchain-experimental/blob/main/libs/experimental/langchain_experimental/text_splitter.py#L99) as offered by [langchain_experimental (python package)](https://github.com/langchain-ai/langchain-experimental/tree/main)
-- [langchain_experimental "SemanticChunker" tutorial](https://colab.research.google.com/github/LangChain-OpenTutorial/LangChain-OpenTutorial/blob/main/07-TextSplitter/04-SemanticChunker.ipynb#scrollTo=312e3aae)
-- ["A Visual Exploration of Semantic Text Chunking" article](https://towardsdatascience.com/a-visual-exploration-of-semantic-text-chunking-6bb46f728e30/):
-  - :warning: This article mentions that it is key to "use a model that has been trained to generate meaningful embeddings" and forwards to [`SentenceTransformers` library](https://sbert.net/)
+- [`SemanticChunker` class](https://github.com/langchain-ai/langchain-experimental/blob/main/libs/experimental/langchain_experimental/text_splitter.py#L99) as offered by [langchain_experimental](https://github.com/langchain-ai/langchain-experimental/tree/main)
+- ["A Visual Exploration of Semantic Text Chunking" article](https://towardsdatascience.com/a-visual-exploration-of-semantic-text-chunking-6bb46f728e30/)
 - [Langchain's tutorial: Build a semantic search engine with LangChain](https://docs.langchain.com/oss/python/langchain/knowledge-base)
-
-### Ingesting a Markdown file
-
-- Use [LangChain's `UnstructuredMarkdownLoader`](https://docs.langchain.com/oss/python/integrations/document_loaders/unstructured_markdown)
