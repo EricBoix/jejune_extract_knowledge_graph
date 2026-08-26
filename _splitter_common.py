@@ -7,10 +7,6 @@ from pathlib import Path
 import yaml
 
 
-def source_reference(doc_dir: Path) -> str:
-    return "jejune:" + doc_dir.name.removeprefix("jejune_doc_")
-
-
 def load_catalog(catalog_path: str) -> tuple[dict, Path]:
     path = Path(catalog_path)
     with open(path, encoding="utf-8") as f:
@@ -68,8 +64,8 @@ def process_catalog(catalog_path: str, split_fn) -> list[dict]:
     catalog, doc_dir = load_catalog(catalog_path)
     markdown_file = doc_dir / catalog["markdown_file"]
     metadata_base = {
-        "source_name": str(markdown_file),
-        "source_reference": source_reference(doc_dir),
+        "jejune_source_name": markdown_file.name,
+        "jejune_source_slug": catalog["slug"],
     }
     return split_fn(markdown_file.read_text(encoding="utf-8"), metadata_base)
 
