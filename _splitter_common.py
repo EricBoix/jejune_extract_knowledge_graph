@@ -7,11 +7,11 @@ from pathlib import Path
 import yaml
 
 
-def load_catalog(catalog_path: str) -> tuple[dict, Path]:
-    path = Path(catalog_path)
+def load_manifest(manifest_path: str) -> tuple[dict, Path]:
+    path = Path(manifest_path)
     with open(path, encoding="utf-8") as f:
-        catalog = yaml.safe_load(f)
-    return catalog, path.parent
+        manifest = yaml.safe_load(f)
+    return manifest, path.parent
 
 
 def add_common_arguments(parser: argparse.ArgumentParser, modality: str) -> None:
@@ -52,20 +52,20 @@ def resolve_output_path(args: argparse.Namespace, modality: str) -> Path | None:
     if args.output is not None:
         base = Path(args.output_dir) if args.output_dir else Path(".")
         return base / args.output
-    catalog, doc_dir = load_catalog(args.catalog[0])
-    md_file = doc_dir / catalog["markdown_file"]
+    manifest, doc_dir = load_manifest(args.catalog[0])
+    md_file = doc_dir / manifest["markdown_file"]
     filename = f"{md_file.stem}_-_{modality}_as_LangChain_document.json"
     out_dir = Path(args.output_dir) if args.output_dir else md_file.parent
     return out_dir / filename
 
 
-def process_catalog(catalog_path: str, split_fn) -> list[dict]:
-    """Load one catalog and run split_fn on its markdown file."""
-    catalog, doc_dir = load_catalog(catalog_path)
-    markdown_file = doc_dir / catalog["markdown_file"]
+def process_manifest(manifest_path: str, split_fn) -> list[dict]:
+    """Load one manifest and run split_fn on its markdown file."""
+    manifest, doc_dir = load_manifest(manifest_path)
+    markdown_file = doc_dir / manifest["markdown_file"]
     metadata_base = {
         "jejune_source_name": markdown_file.name,
-        "jejune_source_slug": catalog["slug"],
+        "jejune_source_slug": manifest["slug"],
     }
     return split_fn(markdown_file.read_text(encoding="utf-8"), metadata_base)
 
@@ -86,6 +86,6 @@ def run(split_fn, modality: str, description: str) -> None:
     args = parser.parse_args()
     output_path = resolve_output_path(args, modality)
     chunks = []
-    for catalog_path in args.catalog:
-        chunks.extend(process_catalog(catalog_path, split_fn))
+    for manifest_path in args.catalog:
+        chunks.extend(process_manifest(manifest_path, split_fn))
     write_output(chunks, output_path)
