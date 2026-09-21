@@ -57,6 +57,7 @@ def extract_graph(llm, documents):
 
 
 def create_neo4j_database(graph_documents):
+    llm_model_name = os.environ["LLM_MODEL_NAME"]
     graph = Neo4jGraph(
         username=os.environ["NEO4J_USERNAME"], password=os.environ["NEO4J_PASSWORD"]
     )
@@ -82,6 +83,12 @@ def create_neo4j_database(graph_documents):
         """
         tx.run(query)
 
+    def tag_non_document_nodes(tx):
+        tx.run(
+            "MATCH (n) WHERE NOT n:Document SET n.llm_model_name = $model_name",
+            model_name=llm_model_name,
+        )
+
     try:
         with driver.session() as session:
             session.execute_write(create_fulltext_index)
@@ -89,6 +96,16 @@ def create_neo4j_database(graph_documents):
     except Exception as e:
         print(DEBUG_PROMPT + "Neo4j database fulltext index creation failed.")
         print(DEBUG_PROMPT + "Exception: ", repr(e))
-        pass
+
+    try:
+        with driver.session() as session:
+            session.execute_write(tag_non_document_nodes)
+            print(
+                DEBUG_PROMPT
+                + f"Neo4j non-Document nodes tagged with llm_model_name='{llm_model_name}'."
+            )
+    except Exception as e:
+        print(DEBUG_PROMPT + "Neo4j non-Document nodes tagging failed.")
+        print(DEBUG_PROMPT + "Exception: ", repr(e))
 
     driver.close()
