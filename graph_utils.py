@@ -32,11 +32,16 @@ def initialize_llm():
         temperature=0,
         format="json",
     )
+    # Ditch attempt to bring some robustness to flaky/remote LLM endpoints
+    llm_with_retry = llm.with_retry(
+        stop_after_attempt=128,  # Retry until llm host server recovers
+        wait_exponential_jitter=True,  # Add jitter to wait time between retries
+    )
 
     # Handshake test
     print(DEBUG_PROMPT + "Testing LLM connection...", end="", flush=True)
     try:
-        response = llm.invoke('Reply with exactly: {"status": "ok"}')
+        response = llm_with_retry.invoke('Reply with exactly: {"status": "ok"}')
         print(DEBUG_PROMPT + f" {response.content}")
     except Exception as e:
         print(f"\nFailed to connect to LLM at {LLM_MODEL_URL}")
@@ -45,7 +50,7 @@ def initialize_llm():
         print(f"Error: {e}")
         sys.exit(1)
 
-    return llm
+    return llm_with_retry
 
 
 def extract_graph(llm, documents):
