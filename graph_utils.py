@@ -5,6 +5,22 @@ import networkx as nx
 
 from langchain_neo4j import Neo4jGraph
 from langchain_experimental.graph_transformers import LLMGraphTransformer
+
+
+class _RetryingLLMGraphTransformer(LLMGraphTransformer):
+    """LLMGraphTransformer that retries the full prompt→LLM chain on transient failures.
+
+    LLMGraphTransformer creates self.chain = prompt | llm.with_structured_output(...)
+    in __init__. Retry must be applied to that chain, not to the raw LLM, because
+    RunnableRetry does not forward with_structured_output.
+    """
+
+    def __init__(self, llm, stop_after_attempt=128, wait_exponential_jitter=True, **kwargs):
+        super().__init__(llm=llm, **kwargs)
+        self.chain = self.chain.with_retry(
+            stop_after_attempt=stop_after_attempt,
+            wait_exponential_jitter=wait_exponential_jitter,
+        )
 from langchain_ollama import ChatOllama
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
@@ -50,11 +66,11 @@ def initialize_llm():
         print(f"Error: {e}")
         sys.exit(1)
 
-    return llm_with_retry
+    return llm
 
 
 def extract_graph(llm, documents):
-    llm_transformer = LLMGraphTransformer(llm=llm)
+    llm_transformer = _RetryingLLMGraphTransformer(llm=llm)
     print(DEBUG_PROMPT + "Graph extracting: starting...", flush=True)
     graph_documents = llm_transformer.convert_to_graph_documents(documents)
     print(DEBUG_PROMPT + "\nGraph extraction: done.")
