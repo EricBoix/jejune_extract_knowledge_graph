@@ -5,7 +5,6 @@
 - [Introduction](#introduction)
 - [Running things: the simple extraction use case](#running-things-the-simple-extraction-use-case)
 - [Running with Docker](#running-with-docker)
-- [Splitting strategies](#splitting-strategies)
 - [Visually explore the resulting knowledge graph (with neo4j web UI)](#visually-explore-the-resulting-knowledge-graph-with-neo4j-web-ui)
 - [Use the knowledge graph programmatically](#use-the-knowledge-graph-programmatically)
 - [Dump/Restore the database content for later usage](#dumprestore-the-database-content-for-later-usage)
@@ -38,6 +37,17 @@ export RESULTS_DIR=`pwd`/result_data
 jejune neo4j start $RESULTS_DIR
 ```
 
+### Note: run the chunk splitters first
+
+Before extracting, produce a JSON document from your `jejune_doc_*` repository
+using [`jejune_chunk_splitters`](https://github.com/EricBoix/jejune_chunk_splitters). Refer to that repository for installation, available strategies (by headers, by paragraphs, by sentences), output flags, and Docker usage. Usage boils down to commands alike
+
+```bash
+jejune chunk-splitters split /path/to/jejune_doc_<name>
+```
+
+The output JSON is written beside the source markdown file with an auto-generated name, e.g. `<stem>_-_Headers_as_LangChain_document.json`.
+
 ### Realize the graph extraction
 
 ```bash
@@ -51,13 +61,7 @@ pip install -r requirements.txt
 # Retrieve some input data e.g.
 git clone https://github.com/EricBoix/jejune_doc_Four_Noble_Truths.git
 
-# Step 1: split the document (choose a splitter — see "Splitting strategies" below).
-# Output is written beside the markdown file with an auto-generated name, e.g.
-# jejune_doc_Four_Noble_Truths/original_data/<stem>_-_Headers_as_LangChain_document.json
-python split_by_headers.py \
-  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml
-
-# Step 2: extract the knowledge graph and store it in Neo4j
+# Extract the knowledge graph and store it in Neo4j
 python extract_kg_graph.py \
   --load_json_document \
   jejune_doc_Four_Noble_Truths/original_data/<stem>_-_Headers_as_LangChain_document.json
@@ -76,29 +80,23 @@ python extract_kg_graph.py \
 
 ## Running with Docker
 
-Build the image from the repository root:
+Build the image:
 
 ```bash
-docker build -t jejuneness:extract_knowledge_graph https://github.com/EricBoix/jejune_extract_knowledge_graph.git#:DockerContext
+# Extractor image (this repository)
+docker build -t jejuneness:extract_knowledge_graph \
+  https://github.com/EricBoix/jejune_extract_knowledge_graph.git#:DockerContext
 ```
 
-Shallow testing of the image
+Shallow testing of the extractor image:
 
 ```bash
-docker run jejuneness:extract_knowledge_graph split_by_headers.py --help
 docker run jejuneness:extract_knowledge_graph extract_kg_graph.py --help
 ```
 
 Run the extraction (adjust paths and `.env` as needed):
 
 ```bash
-# Step 1: split (doc_dir is mounted as /data; output written beside the markdown file)
-docker run --rm \
-  -v /path/to/jejune_doc_<name>:/data \
-  jejuneness:extract_knowledge_graph \
-  split_by_headers.py --catalog /data/catalog.yaml --output_dir /data/original_data
-
-# Step 2: extract (adjust the auto-generated filename to match the markdown stem)
 docker run --rm \
   -v /path/to/jejune_doc_<name>:/data \
   --env-file .env \
@@ -107,73 +105,12 @@ docker run --rm \
   --load_json_document /data/original_data/<stem>_-_Headers_as_LangChain_document.json
 ```
 
-## Splitting strategies
+### Blending multiple documents into a single extraction
 
-Three standalone splitters are provided. Each reads document metadata from
-`catalog.yaml` (located at the root of a `jejune_doc_*` repository) and writes
-a JSON file of [LangChain Documents](https://reference.langchain.com/python/langchain-core/documents) that can be inspected before feeding them into the extractor.
-
-All splitters share these output flags:
-
-| Flag | Meaning |
-|------|---------|
-| _(none)_ | auto-generate `<markdown_stem>_-_<Modality>_as_LangChain_document.json` beside the markdown file |
-| `--output_dir DIR` | place the auto-generated (or named) file in `DIR` instead |
-| `--output FILE` | use `FILE` as the filename; relative to `--output_dir` if given |
-| `--output -` | write to stdout |
-
-`--catalog` is repeatable to blend multiple documents; `--output` is then required.
-
-### Split by header sections
-
-One chunk per markdown section (all paragraphs under a heading merged).
-Header hierarchy (`h1`, `h2`, `h3`) is captured in metadata.
+Supply multiple `--load_json_document` arguments to `extract_kg_graph.py` to
+blend JSON files produced by any splitter:
 
 ```bash
-# Auto-named output beside the markdown file
-python split_by_headers.py \
-  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml
-
-# Or redirect to a specific directory
-python split_by_headers.py \
-  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
-  --output_dir result_data
-```
-
-### Split by paragraphs
-
-One chunk per paragraph. Metadata includes the enclosing header hierarchy and
-a `paragraph_number` (reset at each heading boundary).
-
-```bash
-python split_by_paragraphs.py \
-  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
-  --output_dir result_data
-```
-
-### Split by sentences
-
-One chunk per sentence using `nltk.sent_tokenize`. Metadata includes header
-hierarchy, `paragraph_number`, and `sentence_number` within the paragraph.
-
-```bash
-python split_by_sentences.py \
-  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
-  --output_dir result_data
-```
-
-### Blending multiple documents or splitters
-
-Pass `--catalog` multiple times (requires `--output`), or supply multiple
-`--load_json_document` arguments to `extract_kg_graph.py` to blend sources:
-
-```bash
-python split_by_sentences.py \
-  --catalog jejune_doc_Four_Noble_Truths/catalog.yaml \
-  --catalog jejune_doc_Rob_Burbea/catalog.yaml \
-  --output_dir result_data \
-  --output blended_-_Sentences_as_LangChain_document.json
-
 python extract_kg_graph.py \
   --load_json_document result_data/blended_-_Sentences_as_LangChain_document.json \
   --load_json_document result_data/Rob_Burbea_-_Sentences_as_LangChain_Document.json
