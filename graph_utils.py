@@ -93,6 +93,36 @@ def create_neo4j_database(graph_documents):
         auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"]),
     )
 
+    # Relationships are merged on (source, type, target): the same triple stated
+    # in several chunks collapses into one edge. Record every originating chunk
+    # on that edge, mirroring what (:Document)-[:MENTIONS]->(entity) does for nodes.
+    # Note : add_graph_documents() has already filled source.metadata["id"] (md5 of
+    # the chunk text when absent), so it matches the Document node id.
+    relationship_chunk_rows = [
+        {
+            "source_id": relationship.source.id,
+            "target_id": relationship.target.id,
+            # Same normalisation as langchain_neo4j when it creates the edge type
+            "type": relationship.type.replace(" ", "_").upper(),
+            "chunk_id": graph_document.source.metadata["id"],
+        }
+        for graph_document in graph_documents
+        for relationship in graph_document.relationships
+    ]
+
+    def record_relationship_chunks(tx):
+        tx.run(
+            """
+            UNWIND $rows AS row
+            MATCH (source:__Entity__ {id: row.source_id})
+                  -[relationship]->(target:__Entity__ {id: row.target_id})
+            WHERE type(relationship) = row.type
+            SET relationship.chunk_ids =
+                apoc.coll.toSet(coalesce(relationship.chunk_ids, []) + row.chunk_id)
+            """,
+            rows=relationship_chunk_rows,
+        )
+
     def create_fulltext_index(tx):
         # Note : "IF NOT EXISTS" is appended to the query in order to prevents
         # an exception to be thrown should a full-text index on the same schema
@@ -116,6 +146,17 @@ def create_neo4j_database(graph_documents):
             print(DEBUG_PROMPT + "Neo4j database fulltext index successfully created.")
     except Exception as e:
         print(DEBUG_PROMPT + "Neo4j database fulltext index creation failed.")
+        print(DEBUG_PROMPT + "Exception: ", repr(e))
+
+    try:
+        with driver.session() as session:
+            session.execute_write(record_relationship_chunks)
+            print(
+                DEBUG_PROMPT
+                + f"Neo4j relationships tagged with chunk_ids ({len(relationship_chunk_rows)} extractions)."
+            )
+    except Exception as e:
+        print(DEBUG_PROMPT + "Neo4j relationship chunk_ids tagging failed.")
         print(DEBUG_PROMPT + "Exception: ", repr(e))
 
     try:
