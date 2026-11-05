@@ -1,20 +1,31 @@
 # Personal names
+Burbea
 Dhammacakkappavattana
 Eifrem
 Sayadaw
 Tejaniya
+
 # Technical
 agentic
+apoc
 chuncker
 Chunker
 chunckers
 chunckings
+dotenv
+dummytext
+fulltext
 Gazit
 grafana
+Langsmith
 langchain
+mxbai
+Nonna
+nltk
 Openweb
 ollama
 promql
+traceloop
 toplevel
 youtube
 venv
