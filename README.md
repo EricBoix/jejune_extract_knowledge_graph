@@ -84,14 +84,14 @@ Build the image:
 
 ```bash
 # Extractor image (this repository)
-docker build -t jejuneness:extract_knowledge_graph \
+docker build -t jejune:extract_knowledge_graph \
   https://github.com/EricBoix/jejune_extract_knowledge_graph.git#:DockerContext
 ```
 
 Shallow testing of the extractor image:
 
 ```bash
-docker run jejuneness:extract_knowledge_graph extract_kg_graph.py --help
+docker run jejune:extract_knowledge_graph extract_kg_graph.py --help
 ```
 
 Run the extraction (adjust paths and `.env` as needed):
@@ -100,7 +100,7 @@ Run the extraction (adjust paths and `.env` as needed):
 docker run --rm \
   -v /path/to/jejune_doc_<name>:/data \
   --env-file .env \
-  jejuneness:extract_knowledge_graph \
+  jejune:extract_knowledge_graph \
   extract_kg_graph.py \
   --load_json_document /data/original_data/<stem>_-_Headers_as_LangChain_document.json
 ```
